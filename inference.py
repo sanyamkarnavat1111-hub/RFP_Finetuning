@@ -39,23 +39,21 @@ def predict_status(ea_requirement, rfp_coverage, gap_analysis):
 
     return predicted_class
 
-# Example usage
-
-
 df = pd.read_csv("extracted_file.csv")
 
 
-for row in df.iterrows():
-    ea_req = row[0]
-    actual_status = row[1]
-    rfp_cov = row[2]
-    gap = row[3]
+for _ , row in df.iterrows():
+    ea_req = row["EA_Requirement"]
+    actual_status = row["Status"]
+    rfp_cov = row["RFP_Coverage"]
+    gap = row["Gap_analysis"]
     
     predicted_status = predict_status(ea_req, rfp_cov, gap)
-
     if predicted_status == 1:
         print(f"Actual status {"Partially Met" if actual_status == 1 else "Not Met"}")
         print("Prediction :- Partially Met")
+        print("-"*100)
     else:
         print(f"Actual status {"Partially Met" if actual_status == 1 else "Not Met"}")
         print("Predicted :- Not Met")
+        print("-"*100)

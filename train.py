@@ -18,7 +18,9 @@ def compute_metrics(eval_pred):
     f1_score = f1.compute(predictions=predictions, references=labels, average="weighted")
     return {"accuracy": acc["accuracy"], "f1": f1_score["f1"]}
 
-checkpoint = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+# checkpoint = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+checkpoint = "google-bert/bert-base-multilingual-cased"
+
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 model = AutoModelForSequenceClassification.from_pretrained(checkpoint)
@@ -94,6 +96,22 @@ trainer = Trainer(
 
 
 trainer.train()
+
+
+
+
+print("Best model checkpoint:", trainer.state.best_model_checkpoint)
+print("Best metric (accuracy):", trainer.state.best_metric)
+
+
+
+eval_results = trainer.evaluate()
+print("Evaluation Results:")
+for key, value in eval_results.items():
+    print(f"{key}: {value}")
+
+
+
 
 
 # Save the trained model and tokenizer locally
