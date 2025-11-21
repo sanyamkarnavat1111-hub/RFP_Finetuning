@@ -6,7 +6,7 @@ df = pd.DataFrame(columns=['EA_Requirement' , 'Status' , 'RFP_Coverage' , 'Gap_a
 def is_not_empty(val):
     return val is not None and str(val).strip() != ""
 
-with pdfplumber.open("rfp-details.pdf") as pdf:
+with pdfplumber.open("Dataaset/rfp-details-english.pdf") as pdf:
     for page in pdf.pages[1:]:
         tables = page.extract_tables()
         for row in tables:

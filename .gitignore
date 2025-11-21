@@ -4,3 +4,11 @@ results/*
 *.pdf
 *.csv
 saved_model/*
+*.zip
+unsloth_compiled_cache
+*.safetensors
+*.json
+*.bin
+*.pt
+*.pth
+*.model
