@@ -1,0 +1,6 @@
+.venv/*
+hf_cache/*
+results/*
+*.pdf
+*.csv
+saved_model/*
