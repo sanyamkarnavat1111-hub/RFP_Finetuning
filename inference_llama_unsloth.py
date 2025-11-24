@@ -12,7 +12,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     dtype=None,                   
     load_in_4bit=True, # Passing the load in 4 bit model is very essential when models loaded for inferencing            
     device_map="auto",
-    max_memory={0: "80GB"},
+    max_memory={0: "80GB"}, ### Note passing an arbitarily large number than the capacity of GPU forces to use whatever memeory is available
 )
 
 print("Model loaded from pretrained...")
@@ -41,7 +41,8 @@ prompt = """### Enterprise Architecture (EA) Requirement:
 {}
 
 ## You need to understand the status and if not present analyze the EA requirements , RFP coverage and Gap analysis and the provide status.
-### Status  # 1 = Partially Met, 0 = Fully Met:
+Provide the status 
+### Status
 {} 
 
 """
@@ -80,4 +81,6 @@ inputs = tokenizer(
 
 outputs = model.generate(**inputs , max_new_tokens = 100 , use_cache=True)
 
-print(tokenizer.batch_decode(outputs))
+result = tokenizer.batch_decode(outputs)
+
+print(result)
