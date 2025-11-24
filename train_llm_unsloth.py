@@ -13,13 +13,15 @@ load_in_4bit = True  # Use 4bit quantization to reduce memory usage. Can be Fals
 
 
 
-checkpoint = "unsloth/gemma-7b-bnb-4bit"
+checkpoint = "unsloth/Meta-Llama-3.1-8B"
 
 model , tokenizer = FastLanguageModel.from_pretrained(
     model_name=checkpoint,
     max_seq_length=max_seq_length,
     dtype=None,
-    load_in_4bit=load_in_4bit
+    load_in_4bit=load_in_4bit,
+    # device_map="auto",
+    # max_memory={0: "80GB"},
 )
 
 
@@ -45,7 +47,11 @@ print("Loading peft model ...")
 
 
 
-prompt = """### Enterprise Architecture (EA) Requirement:
+prompt = """
+Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+You need to study the EA requirement , RFP coverage , Gap analysis and provide the Status (Where 1 means "Partially met and 0 means "Not met")
+
+### Enterprise Architecture (EA) Requirement:
 (This is a specific requirement from the organization's enterprise architecture, describing technical, compliance, or process needs.)
 {}
 
@@ -58,7 +64,7 @@ prompt = """### Enterprise Architecture (EA) Requirement:
 {}
 
 ## You need to understand the status and if not present analyze the EA requirements , RFP coverage and Gap analysis and the provide status.
-### Status  # 1 = Partially Met, 0 = Fully Met:
+### Status
 {} 
 
 """
@@ -76,7 +82,7 @@ def format_prompt_fucnc(examples):
 
     texts = []
     for ea, stat, rfp, gap in zip(ea_list, status_list, rfp_list, gap_list):
-        text = prompt.format(ea, stat, rfp, gap) + EOS_TOKEN
+        text = prompt.format(ea, stat, rfp, gap)
         texts.append(text)
 
     return texts
@@ -101,12 +107,12 @@ trainer = SFTTrainer(
         per_device_eval_batch_size=2,
         warmup_steps=5,
         num_train_epochs=10,
-        max_steps=1000,
+        max_steps=100,
         learning_rate=2e-4,
         logging_steps=1,
         optim="adamw_8bit",
         weight_decay=0.001,
-        lr_scheduler_type="linear",
+        lr_scheduler_type="linear", 
         seed=3407,
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),

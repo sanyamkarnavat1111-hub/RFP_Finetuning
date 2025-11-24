@@ -28,20 +28,18 @@ print("Time required to load the model :-" , end_time-start_time)
 
 
 
-prompt = """### Enterprise Architecture (EA) Requirement:
-(This is a specific requirement from the organization's enterprise architecture, describing technical, compliance, or process needs.)
+prompt = """
+Fill and provide the status according to your analysis.
+### Enterprise Architecture (EA) Requirement:
 {}
 
 ### RFP Coverage:
-(This section describes how the Request for Proposal addresses the EA requirement, detailing proposed solutions, compliance, and coverage.)
 {}
 
 ### Gap Analysis:
-(This summarizes what analysis was done to compare the RFP with the EA requirement and identifies any gaps found.)
 {}
 
 ## You need to understand the status and if not present analyze the EA requirements , RFP coverage and Gap analysis and the provide status.
-Provide the status 
 ### Status
 {} 
 

@@ -8,6 +8,9 @@ and a  A vendor’s response to an RFP, outlining their proposed solution, team 
 The team has created a pipeline where they pass RPF and proposal and doing a language detection (if 30 % of the characters are arabic then convert entire document of RPF and Proposal to english and vice versa) . The issue is one proposal and pdf might have maximum of 200 pages and open source LLM's are not capable to handle such long length text. They have the system to measure score but they want something like machine learning , deep learning or any other NLP model which could be trained on their result of scoring lets say their LLM says RPF document and proposal matches 90% so there should our finetuned model which will learn and train itself based on this scoring.
 
 What should be my approach ,can you please become my expert guide and tell me ?
+
+
+
 ChatGPT said:
 Below is a clear, practical, senior-level approach to solve your problem—designing an ML/NLP pipeline that can learn from RFP–proposal pairs and the similarity scores provided by your current LLM system. The goal is to build a finetuned model that approximates or improves the LLM scoring without requiring huge context windows.
 
