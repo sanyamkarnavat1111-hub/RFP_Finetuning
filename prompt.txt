@@ -1,0 +1,131 @@
+Check if the code that I implemented is correct or not and if not correct the code and give me .
+
+My requirements it to check if the provided input is file_path or url and if url then download that file and also after that check if the file is either pdf or docx and if not raise error for invalid file type and if file is docx then convert it to pdf using docx2pdf and libre office if fallback for linux os after that use "PyMuPDF4LLMLoader" to load the text from document (My pdf documents will have both text and tabular data hence I chose this loader for proper formatted output even for unstructured data ) after every thing is done simple delete the file if it was downloaded from url. 
+
+import os
+from langchain_pymupdf4llm import PyMuPDF4LLMLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from urllib.parse import urlparse
+import requests
+import tempfile
+from docx2pdf import convert
+import subprocess
+
+
+class FileParser:
+    def __init__(self, file_path_or_url: str, max_chunk_size: int = 1000, chunk_overlap: int = 200):
+        
+
+        self.file_input = file_path_or_url
+        self.is_file_or_url = self.classify_path_or_url(s=self.file_input)
+
+        self.max_chunk_size = max_chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=max_chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+        )
+
+
+    def classify_path_or_url(self , s: str) -> str:
+        # --- Check for URL ---
+        parsed = urlparse(s)
+        if parsed.scheme in ("http", "https", "ftp") and parsed.netloc:
+            return "url"
+        
+        # --- Check for file path ---
+        # Absolute paths (Windows + Unix)
+        if os.path.isabs(s):
+            return "file_path"
+        
+        # Relative paths that appear to be files
+        # (contains directory separators or ends with a common file extension)
+        if any(sep in s for sep in ("/", "\\")):
+            return "file_path"
+        
+        # Possibly a filename without directories
+        # (optional: check for file-like extensions)
+        if "." in os.path.basename(s):
+            return "file_path"        
+        return "unknown"
+    
+    def download_and_save(self , url : str):
+        try:
+
+            response = requests.get(url=url , stream=True)
+            response.raise_for_status()
+            extension = str(url).split(".")[-1]
+
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as tmp:
+                temp_path = tmp.name
+
+            with open(temp_path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:  # Ignore keep-alive chunks
+                        file.write(chunk)
+
+            print(f"File downloaded successfully and saved as: {temp_path}")
+
+            return temp_path
+        
+        except Exception as e :
+            print(f"Error downloading file from url ... {e}")
+            return ""
+    
+    def parse_text(self):
+
+        try:
+            file_path = ""
+
+
+            if self.is_file_or_url == 'unknown':
+                raise ValueError("Invalid file or url ...")
+            
+            elif self.is_file_or_url == "url":
+                file_path = self.download_and_save(url=self.file_input)
+
+            elif self.is_file_or_url == "file_path":
+                # The given input is file path so parse it directly from file path
+                file_path = self.file_input
+
+            
+            if not file_path:
+                raise ValueError("Error parsing .. the url / file provided is invalid")
+            
+            # Now check if the given file is docx file or not.
+            filename , ext = str(file_path).split(".")[-1]
+            if ext in ['docx' , 'pdf']:
+                if ext == "docx":
+                    # Convert to pdf 
+                    try:
+                        convert(input_path=file_path , output_path=filename + ".docx")
+                    except Exception as e:
+                        print(f"Error converting docx file to pdf using docx2pdf .. trying with libre office...")
+
+                        try:
+                            # If linux then install libre office "sudo apt install libreoffice"
+                            subprocess.run([
+                                "soffice", "--headless", "--convert-to", "pdf", file_path,
+                                "--outdir", os.path.dirname(filename + ".docx")
+                            ], check=True)
+
+                        except Exception as e:
+                            print(f"Error converting docx to pdf using libre office ... {e}")
+                            return ""
+                
+                # Now the file is guaranteed to be in pdf only
+                loader = PyMuPDF4LLMLoader(file_path=file_path)
+                docs = loader.lazy_load()
+
+                return "\n".join([doc.page_content for doc in docs])
+
+            else:
+                raise ValueError("Only .pdf and .docx files are supported ...")
+
+        except Exception as e :
+            print(f"Error while parsing file :- {e}")
+        finally:
+            if os.path.exists(file_path) and self.is_file_or_url == 'url':
+                os.unlink(file_path)

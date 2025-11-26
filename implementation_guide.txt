@@ -5,7 +5,8 @@ I have got a requirement to finetune any open source model.
 So according to the requirement I will be given A Request for Proposal (RFP) is a procurement document issued by an organization to solicit vendor bids for products or services
 and a  A vendor’s response to an RFP, outlining their proposed solution, team qualifications, and compliance with requirements
 
-The team has created a pipeline where they pass RPF and proposal and doing a language detection (if 30 % of the characters are arabic then convert entire document of RPF and Proposal to english and vice versa) . The issue is one proposal and pdf might have maximum of 200 pages and open source LLM's are not capable to handle such long length text. They have the system to measure score but they want something like machine learning , deep learning or any other NLP model which could be trained on their result of scoring lets say their LLM says RPF document and proposal matches 90% so there should our finetuned model which will learn and train itself based on this scoring.
+The team has created a pipeline where they pass RFP and proposal and doing a language detection (if 30 % of the characters are arabic then convert entire document of RPF and Proposal to english and vice versa) . 
+The issue is one proposal and pdf might have maximum of 200 pages and open source LLM's are not capable to handle such long length text. They have the system to measure score but they want something like machine learning , deep learning or any other NLP model which could be trained on their result of scoring lets say their LLM says RPF document and proposal matches 90% so there should our finetuned model which will learn and train itself based on this scoring.
 
 What should be my approach ,can you please become my expert guide and tell me ?
 
