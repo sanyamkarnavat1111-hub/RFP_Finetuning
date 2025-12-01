@@ -1,5 +1,5 @@
 from typing import Literal
-from parse_files import FileParser
+from download_and_parse import FileParser
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel , Field

@@ -9,28 +9,23 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
+
 # === Structured Output Models ===
 class EventLabel(BaseModel):
-    """Structured output for event/topic labeling"""
     label: str = Field(..., description="A concise, descriptive label for the main event or topic")
 
 class EventSummary(BaseModel):
-    """Structured output for individual event summary"""
     summary: str = Field(..., description="Clear and concise summary of the event")
 
-class FinalSummary(BaseModel):
-    """Structured output for the final document summary"""
-    comprehensive_summary: str = Field(..., description="Overall summary of the entire document")
 
 class HERASummarizer:
     def __init__(self, ollama_model: str = "gemma2:9b", max_workers: int = 8):
         self.llm = ChatOllama(model=ollama_model, temperature=0.0)
         self.max_workers = max_workers
 
-        # LLM with structured output
+        # Structured output LLMs
         self.llm_label = self.llm.with_structured_output(EventLabel)
         self.llm_event_summary = self.llm.with_structured_output(EventSummary)
-        self.llm_final_summary = self.llm.with_structured_output(FinalSummary)
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,
@@ -38,9 +33,10 @@ class HERASummarizer:
             separators=["\n\n", "\n", ". ", " ", ""],
         )
 
-        # Prompts (clean, strict instructions)
+        # Prompts
         self.event_grouping_prompt = ChatPromptTemplate.from_messages([
             ("system", "You are an expert at identifying the core topic of a text segment. "
+                       "Check if the given text input is English, if not your answers should always be in English. "
                        "Return ONLY a short, precise label. No explanations, no extra text."),
             ("human", "Text: {text}\n\nEvent/Topic Label:")
         ])
@@ -51,18 +47,11 @@ class HERASummarizer:
             ("human", "Related segments:\n{event_segments}\n\nSummary:")
         ])
 
-        self.final_summary_prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert at synthesizing high-level document summaries. "
-                       "Produce a comprehensive, well-structured overview."),
-            ("human", "Event summaries:\n{event_summaries}\n\nFinal Summary:")
-        ])
-
     def split_into_segments(self, text: str) -> List[Document]:
         segments = self.text_splitter.split_text(text)
         return [Document(page_content=s) for s in segments]
 
     def label_segment(self, segment: Document) -> tuple[str, Document]:
-        """Thread-safe labeling of one segment"""
         chain = self.event_grouping_prompt | self.llm_label
         result = chain.invoke({"text": segment.page_content})
         clean_label = result.label.strip().strip('"').strip("'")
@@ -81,47 +70,29 @@ class HERASummarizer:
         print(f"Identified {len(event_groups)} distinct events")
         return event_groups
 
-    def summarize_single_event(self, args: tuple[str, List[Document]]) -> str:
-        """Summarize one event (used in parallel)"""
-        label, segments = args
+    def summarize_single_event(self, label: str, segments: List[Document]) -> str:
         combined = "\n\n".join([s.page_content for s in segments])
         chain = self.event_summary_prompt | self.llm_event_summary
         result = chain.invoke({"event_segments": combined})
-        return f"Event: {label}\n{result.summary.strip()}"
+        return f"{label}\n{result.summary.strip()}"
 
     def summarize_document(self, text: str) -> str:
         print("Step 1: Splitting document into segments...")
         segments = self.split_into_segments(text)
         print(f"Created {len(segments)} segments")
 
-        # Step 2: Parallel event labeling + grouping
+        # Step 2: Parallel labeling (kept — this actually helps)
         event_groups = self.group_segments_into_events(segments)
 
-        # Step 3: Parallel event summarization
-        print("Step 3: Summarizing each event...")
-        event_items = list(event_groups.items())
+        # Step 3: Sequential event summarization (no threading — as requested)
+        print("Step 3: Summarizing each event (sequential)...")
         event_summaries: List[str] = []
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(self.summarize_single_event, item) for item in event_items]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Summarizing events"):
-                event_summaries.append(future.result())
+        for label, segments in tqdm(event_groups.items(), desc="Summarizing events"):
+            summary = self.summarize_single_event(label, segments)
+            event_summaries.append(summary)
 
-        # Step 4: Final comprehensive summary
-        print("Step 4: Generating final comprehensive summary...")
-        combined_events = "\n\n".join(event_summaries)
-        final_chain = self.final_summary_prompt | self.llm_final_summary
-        final_result = final_chain.invoke({"event_summaries": combined_events})
-
-        structured_output = f"""HERA Document Summary
-================================================================================
-Event-Based Summaries:
-{"\n\n".join(event_summaries)}
-
-================================================================================
-Comprehensive Document Summary:
-{final_result.comprehensive_summary.strip()}
-"""
+        structured_output = f"""Document details:\n{"\n\n".join(event_summaries)}"""
         return structured_output
 
 
@@ -142,13 +113,13 @@ def load_and_summarize_pdf(pdf_path: str, ollama_model: str = "gemma2:9b", max_w
 
 # ========================== USAGE ==========================
 if __name__ == "__main__":
-    pdf_path = "research.pdf"  # Change to your PDF
+    pdf_path = "document.pdf"
 
     try:
         result = load_and_summarize_pdf(
             pdf_path=pdf_path,
-            ollama_model="gemma2:9b",   # or "llama3.1:8b", "mistral", etc.
-            max_workers=12              # Adjust based on your CPU/RAM
+            ollama_model="gemma2:9b",
+            max_workers=12
         )
 
         print("\n" + "="*80)
@@ -156,7 +127,6 @@ if __name__ == "__main__":
         print("="*80)
         print(result)
 
-        # Optional: save to file
         with open("hera_summary.txt", "w", encoding="utf-8") as f:
             f.write(result)
         print("\nSummary saved to hera_summary.txt")

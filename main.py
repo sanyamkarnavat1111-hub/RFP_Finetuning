@@ -1,4 +1,4 @@
-from parse_files import FileParser
+from download_and_parse import FileParser
 from language_detection import LanguageDetection
 import pandas as pd
 import os
