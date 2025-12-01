@@ -33,7 +33,7 @@ MODEL,
     trust_remote_code=True
 )
 
-def extract_text_from_local_image(image_path, prompt="Please extract and return all the text visible in this image and covert to English language if the text in Arabic or other language ."):
+def extract_text_from_local_image(image_path, prompt="Please extract and return all the text visible in this image and covert to English language if the input is in other language."):
     """
     Extract text from a local image file using the vision-language model.
     
@@ -85,7 +85,7 @@ def extract_text_from_local_image(image_path, prompt="Please extract and return 
 # Example usage
 if __name__ == "__main__":
     # Specify the path to your local image file
-    image_path = "arabic.png"
+    image_path = "arabic.jpg"
 
     try:
         start_time = time.perf_counter()
