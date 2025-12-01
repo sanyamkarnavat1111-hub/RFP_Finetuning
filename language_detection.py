@@ -1,6 +1,12 @@
 from typing import Literal
 from parse_files import FileParser
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel , Field
 
+
+class LanguageConversionSchema(BaseModel):
+    english_converted_text : str =  Field(... , description="English conversion text from Arabic text ")
 
 Language = Literal["arabic", "english", "unknown"]
 
@@ -95,6 +101,47 @@ class LanguageDetection:
             "latin_chars": total_relevant - arabic_count,
             "confidence": round(confidence, 3)
         }
+    
+    def convert_arabic_to_english(self , arabic_text : str):
+
+        try:
+
+            llm = ChatOllama(
+                model="gemma2:9b"
+            )
+
+            llm_with_structured_output = llm.with_structured_output(schema=LanguageConversionSchema)
+
+            prompt = ChatPromptTemplate.from_messages(messages=[
+                ('system' , "You are a language translator and an expert at converting Arabic language to English."),
+                ('human' , """ 
+                
+                This is the additional context given to you :-
+
+                ## RFP: A Request for Proposal (RFP) is a procurement document issued by an organization to solicit vendor bids for products or services. It details technical specifications, compliance requirements (e.g., enterprise architecture standards, industry regulations), deadlines, and limitations, ensuring clear expectations for vendors.
+
+                ## Proposal: A vendor’s response to an RFP, outlining their proposed solution, team qualifications, and compliance with requirements. Proposals are evaluated for technical fit, expertise, and alignment with RFP criteria.
+
+                ## Purpose: The system automates RFP completeness checks and proposal evaluations, reducing manual effort, ensuring compliance, and providing detailed scoring reports to support informed vendor selection.
+                You will be given chunks of text with little overlap these chunks are of type EA , RFP or proposal , study this Arabic text and try to convert the content to English as accurately as possible .
+        
+                You will be given a chunk of the text whose language is Arabic and you job is to correctly convert this document text to English language.
+                
+                Arabic Text :- 
+                {arabic_text}
+                """)
+            ])
+
+            chain = prompt | llm_with_structured_output
+
+            converted_text = chain.invoke(input={
+                "arabic_text" : arabic_text
+            }).english_converted_text
+
+            return converted_text
+        except Exception as e:
+            print(f"Error converting Arabic text to english :- {e}")
+            return arabic_text
     
 if __name__ == "__main__":
 

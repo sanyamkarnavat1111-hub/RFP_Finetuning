@@ -12,6 +12,8 @@ import fitz
 from PIL import Image
 import io
 import time
+import gc
+from contextlib import contextmanager
 
 # Only import docx2pdf on Windows (it's Windows-only), fallback to libreoffice on Linux/macOS
 try:
@@ -22,7 +24,7 @@ except ImportError:
 
 
 class FileParser:
-    def __init__(self, file_path_or_url: str, max_chunk_size: int = 1000, chunk_overlap: int = 200):
+    def __init__(self, file_path_or_url: str, max_chunk_size: int = 2000, chunk_overlap: int = 200):
         self.file_input = file_path_or_url.strip()
         self.max_chunk_size = max_chunk_size
         self.chunk_overlap = chunk_overlap
@@ -144,7 +146,7 @@ class FileParser:
             # Load text using PyMuPDF4LLMLoader (great for tables + text)
             print(f"Loading document with PyMuPDF4LLMLoader: {final_pdf_path}")
             loader = PyMuPDF4LLMLoader(file_path=final_pdf_path)
-            documents = loader.load()  # Use .load() for simplicity, or lazy_load() if huge
+            documents = loader.lazy_load()
 
             full_text = "\n".join([doc.page_content for doc in documents])
             print(f"Successfully extracted {len(full_text):,} characters from document")
@@ -157,13 +159,17 @@ class FileParser:
 
             # If less than 50 meaningful characters → likely scanned → use OCR
             if alphanumeric_count < 50:
-                print(f"Warning: Only {alphanumeric_count} alphanumeric chars found → Likely scanned PDF. Running DeepSeek-OCR...")
-                ocr_text = self._run_deepseek_ocr(final_pdf_path)
-                print(f"OCR completed: {len(ocr_text):,} characters extracted via DeepSeek-OCR")
-                return ocr_text
+                print(f"Warning: Very few text was extracted  → Likely scanned PDF.... skipping the document ...")
+
+                return ""
+                # ocr_object = DeepSeekOCREngine()
+
+                # ocr_text = ocr_object.run_ocr_with_memory_management(pdf_path=final_pdf_path)
+                # print(f"OCR completed: {len(ocr_text):,} characters extracted via DeepSeek-OCR")
+                # return ocr_text
 
             return full_text
-
+        
         except Exception as e:
             print(f"Error during parsing: {e}")
             raise  # Re-raise for caller to handle
@@ -177,92 +183,205 @@ class FileParser:
                     pass
             self.temp_file_to_cleanup = None
 
-    def _run_deepseek_ocr(self, pdf_path: str) -> str:
+    def split_text(self, text: str):
+        """
+        Split extracted text into appropriately sized chunks
+        Returns a list of text chunks suitable for embedding, fine-tuning, or retrieval
+        """
+        if not text.strip():
+            return []
+        
+        print(f"Splitting {len(text):,} characters into chunks of size {self.max_chunk_size}")
+        
+        # Split the text into chunks
+        chunks = self.text_splitter.split_text(text)
+        
+        print(f"Created {len(chunks)} chunks")
+        
+        # Optional: Add metadata about chunk sizes
+        total_chunk_length = sum(len(chunk) for chunk in chunks)
+        avg_chunk_size = total_chunk_length / len(chunks) if chunks else 0
+        
+        print(f"Average chunk size: {avg_chunk_size:.0f} characters")
+        
+        return chunks
+
+
+
+class DeepSeekOCREngine:
+    def __init__(self):
+        self.memory_threshold = 0.85  # Stop if VRAM usage exceeds 85%
+        
+    def get_vram_usage(self):
+        """Get current VRAM usage percentage"""
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total", 
+                 "--format=csv,nounits,noheader"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                used, total = map(int, result.stdout.strip().split(','))
+                return used / total
+        except:
+            pass
+        return 1.0  # Assume full usage if we can't determine
+    
+    @contextmanager
+    def managed_ocr_session(self):
+        """Context manager that ensures complete cleanup after each page"""
+        try:
+            yield
+        finally:
+            self.force_complete_cleanup()
+    
+    def force_complete_cleanup(self):
+        """More aggressive cleanup than current approach"""
+        print("Performing complete cleanup...")
+        
+        # Multiple sequential cleanup steps
+        for i in range(3):  # Try multiple times
+            subprocess.run(["ollama", "stop", "deepseek-ocr"], 
+                         capture_output=True, timeout=15)
+            time.sleep(1)
+            
+            # Try GPU reset, but don't fail if it doesn't work
+            try:
+                subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0"], 
+                             capture_output=True, timeout=10)
+                time.sleep(1)
+            except subprocess.TimeoutExpired:
+                pass
+        
+        # Force Python garbage collection
+        gc.collect()
+        
+        # Additional system-level cleanup
+        try:
+            subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0"], 
+                         capture_output=True, timeout=5)
+        except:
+            pass
+    
+    def run_ocr_with_memory_management(self, pdf_path: str) -> str:
         doc = fitz.open(pdf_path)
         total_pages = doc.page_count
         all_text = []
-
-        print(f"Starting SERIAL OCR on {total_pages} pages (VRAM fully cleared after every page)")
-
+        
+        failed_pages = []
+        
         for page_num in range(total_pages):
-            start_time = time.time()
-
-            # === 1. Render page to high-quality image ===
-            page = doc[page_num]
-            zoom = 2.5
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-
-            temp_img_path = os.path.abspath(f"temp_ocr_page_{page_num}_{int(time.time()*1000000)}.png")
-            img.save(temp_img_path, "PNG")
-
+            # Check memory state before processing
+            vram_usage = self.get_vram_usage()
+            if vram_usage > self.memory_threshold:
+                print(f"VRAM usage too high ({vram_usage:.1%}), skipping page {page_num + 1}")
+                failed_pages.append(page_num + 1)
+                self.force_complete_cleanup()
+                continue
+            
+            print(f"\nProcessing page {page_num + 1}/{total_pages} (VRAM: {vram_usage:.1%})")
+            
+            temp_img_path = None
             try:
-                # === 2. Run OCR exactly like your working CLI ===
-                command = [
-                    "ollama", "run", "deepseek-ocr",
-                    f"{temp_img_path}\nExtract the text in the image"
-                ]
+                # Render page
+                page = doc[page_num]
+                zoom = 2.5
+                mat = fitz.Matrix(zoom, zoom)
+                pix = page.get_pixmap(matrix=mat)
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                
+                
+                temp_img_path = f"temp_ocr_page_{page_num}_{int(time.time()*1000000)}.png"
+                img.save(temp_img_path, "PNG")
 
-                print(f"\n→ Processing page {page_num + 1}/{total_pages}...")
+                try:
+                    # Use Popen with communicate to ensure complete output capture
+                    command = [
+                        "ollama", "run", "deepseek-ocr",
+                        f"{temp_img_path}\nExtract the text in the image"
+                    ]
+                    
+                    process = subprocess.Popen(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8"
+                    )
+                    
+                    stdout, stderr = process.communicate(timeout=30)
+                    
+                    if process.returncode != 0:
+                        extracted_text = f"(OCR failed: {stderr.strip()})"
+                    else:
+                        # Extract text from complete output
+                        lines = []
+                        in_response = False
+                        for line in stdout.splitlines():
+                            line = line.strip()
+                            if line and "Added image" in line:
+                                in_response = True  # Start capturing after image is added
+                                continue
+                            if in_response and line and not line.startswith(">>>"):
+                                lines.append(line)
+                        
+                        extracted_text = "\n".join(lines).strip()
 
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=300
-                )
+                        print(f"Extracted text :-" , extracted_text)
+                    
+                    all_text.append(f"\n--- Page {page_num + 1} ---\n{extracted_text}\n")
 
-                # === 3. Extract the real text ===
-                if result.returncode != 0:
-                    extracted_text = f"(OCR failed: {result.stderr.strip()})"
-                else:
-                    full_output = result.stdout
-                    # Remove "Added image..." line and junk
-                    lines = [line.strip() for line in full_output.splitlines()
-                            if line.strip() and "Added image" not in line and not line.startswith(">>>")]
-                    extracted_text = "\n".join(lines).strip()
-                    if not extracted_text:
-                        extracted_text = full_output.split("Added image", 1)[-1].strip()
-
-                # === 4. FORCE UNLOAD MODEL + CLEAR GPU VRAM ===
-                print("   Unloading model and clearing GPU VRAM...")
-                subprocess.run(["ollama", "stop", "deepseek-ocr"], capture_output=True, timeout=30)
-
-                # This is the nuclear option that ALWAYS frees VRAM on Windows
-                gpu_reset = subprocess.run(
-                    ["nvidia-smi", "--gpu-reset", "-i", "0"],
-                    capture_output=True,
-                    text=True
-                )
-                if gpu_reset.returncode == 0:
-                    print("   GPU VRAM fully reset!")
-                else:
-                    print(f"   GPU reset warning: {gpu_reset.stderr.strip()}")
-
-                # === 5. Append result ===
-                page_header = f"\n--- Page {page_num + 1} ---"
-                all_text.append(f"{page_header}\n{extracted_text}\n")
-
-                elapsed = time.time() - start_time
-                print(f"Completed page {page_num + 1}/{total_pages} in {elapsed:.1f}s")
-
-            except subprocess.TimeoutExpired:
-                all_text.append(f"\n--- Page {page_num + 1} ---\n(OCR timed out)\n")
-                print("   Timeout → forcing unload...")
-                subprocess.run(["ollama", "stop", "deepseek-ocr"], capture_output=True)
-                subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0"], capture_output=True)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    all_text.append(f"\n--- Page {page_num + 1} ---\n(OCR timed out)\n")
             except Exception as e:
                 all_text.append(f"\n--- Page {page_num + 1} ---\n(OCR error: {e})\n")
             finally:
-                # Always delete temp image
-                if os.path.exists(temp_img_path):
-                    try: os.remove(temp_img_path)
-                    except: pass
+                # Always cleanup
+                if temp_img_path and os.path.exists(temp_img_path):
+                    try:
+                        os.remove(temp_img_path)
+                    except:
+                        pass
+                
+                # Clean up after every page, regardless of success
+                self.force_complete_cleanup()
+                
+                # Longer pause between pages to allow memory to fully settle
+                time.sleep(1)
+        
+        if failed_pages:
+            print(f"Warning: {len(failed_pages)} pages were skipped due to high memory usage: {failed_pages}")
+        
+        return "".join(all_text)
 
-            # Optional: tiny pause to let system breathe
-            time.sleep(1)
+# Additional strategy: Process in batches with complete restarts
+def run_ocr_with_complete_restarts(pdf_path: str, batch_size: int = 3):
+    """Process the document in small batches with complete system restarts"""
+    doc = fitz.open(pdf_path)
+    total_pages = doc.page_count
+    all_text = []
+    
+    for batch_start in range(0, total_pages, batch_size):
+        batch_end = min(batch_start + batch_size, total_pages)
+        print(f"Processing batch {batch_start//batch_size + 1}: pages {batch_start + 1} to {batch_end}")
+        
+        batch_text = []
+        for page_num in range(batch_start, batch_end):
+            # Process single page as before, but with the improved cleanup
+            # ... (use the improved single-page processing from above)
+            pass
+        
+        all_text.extend(batch_text)
+        
+        # After each batch, perform complete cleanup and optionally restart ollama
+        subprocess.run(["ollama", "stop", "deepseek-ocr"], capture_output=True)
+        time.sleep(2)  # Allow complete memory stabilization
+        
+        # Optional: completely restart the ollama service between batches
+        subprocess.run(["net", "stop", "ollama"], capture_output=True)
+        time.sleep(2)
+        subprocess.run(["net", "start", "ollama"], capture_output=True)
 
 if __name__ == "__main__":
 

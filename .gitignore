@@ -12,3 +12,7 @@ unsloth_compiled_cache
 *.pt
 *.pth
 *.model
+*.png
+*.pyc
+*.docx
+__pycache__\*
