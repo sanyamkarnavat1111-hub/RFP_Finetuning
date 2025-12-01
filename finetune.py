@@ -1,5 +1,5 @@
 import os
-os.environ['HF_HOME'] = "/mnt/d/RFP_Finetuning/hf_cache/"
+os.environ['HF_HOME'] = "/mnt/d/RFP_Finetuning/hf_cache_wsl/"
 from datasets import load_dataset 
 from unsloth import FastLanguageModel
 from trl import SFTTrainer , SFTConfig
