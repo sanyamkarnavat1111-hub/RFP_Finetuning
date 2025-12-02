@@ -1,119 +1,101 @@
 from download_and_parse import FileParser
-from language_detection import LanguageDetection
+# from language_detection_and_translation import LanguageDetection
 import pandas as pd
 import os
+from hera_hdbscan_summarizer import HERASummarizer
+import sys
+
 
 # Initialize an empty dataframe to collect all text chunks
 df = pd.DataFrame(columns=['text', 'type'])
 
-class Agent:
-    def __init__(self, file_path: str):
-        self.parser = FileParser(file_path_or_url=file_path)
-        self.detector = LanguageDetection()
-    
-    def Start_Process(self, document_type: str):
+class FineTuneAgent:
+    def __init__(self, input_file_path : str , check_against_file_path : str ):
+
         try:
-            text = self.parser.parse_text()
-            language = self.detector.detect(text=text)
 
-            if text:
+            if not input_file_path:
+                raise ValueError(f"Input file path not provided to agent ...")
 
-                if language == "arabic":
-                    print(f"Arabic language detected , trying to convert to engish ...")
-                    text = self.detector.convert_arabic_to_english(arabic_text=text)
+            if not check_against_file_path :
+                raise ValueError(f"Check against file path not provided to agent ...")
+
+            self.input_file_path = input_file_path
+            self.check_against_file_path = check_against_file_path
+
+            self.parser = FileParser()
+            self.hera_summarizer = HERASummarizer()
+
+            #################################################################################################################
+                        ### No need for language detection and translation , Hera summarize is already doing that ###
+            
+            # self.detector = LanguageDetection()
+            # language = self.detector.detect(text=text)
+            
+            #################################################################################################################
+
+        except Exception as e :
+            print(f"Error Initializing th agent :- \n " , e)
+            sys.exit(0)
+
+        
+    
+    def Start_Process(self):
+        try:
+            input_file_text = self.parser.parse_text(file_path_or_url=self.input_file_path)
+            check_against_file_text = self.parser.parse_text(file_path_or_url=self.check_against_file_path)
+
+
+            if not input_file_text:
+                raise ValueError(f"Not text was extracted from file :- {self.input_file_path}")
+            
+            if not check_against_file_text:
+                raise ValueError(f"Not text was extracted from file :- {self.check_against_file_path}")
+            
+
+            input_file_summarized_text = self.hera_summarizer.summarize_document(text=input_file_text)
+            check_against_summarized_text = self.hera_summarizer.summarize_document(text=check_against_file_text)
+            generated_html_report = """"""
+            total_assigned_score = int(0)
+
+            # Now train the ML  model to iterate over html report to train on "met" , "partially-met" and "not-met"
+            # So now in the html report besides "ea requirement" , "gap analysis" and "status" we will have "ml_prediction" as well which tries to predict "status"
+                # File :- train_bert_status.py
+                # Input required(For now ) :- EA requirement , gap analysis , RFP coverage and status
+                # Exptected output will have :- EA requirement , gap analysis , RFP coverage , status and ML prediction of "status" 
+
 
             
-                # Check if the text length is greater than 1000 characters
-                if len(text) > self.parser.max_chunk_size:
-                    print(f"Text length ({len(text)} characters) exceeds {self.parser.max_chunk_size} characters. Splitting into chunks.")
-                    # Split the text using the parser's split_text function
-                    splitted_text = self.parser.split_text(text=text)
-                    print(f"Text successfully split into {len(splitted_text)} chunks.")
-                else:
-                    # If text is 1000 characters or less, use it as a single chunk
-                    print(f"Text length ({len(text)} characters) is 1000 characters or less. No splitting required.")
-                    splitted_text = [text]
-                
-                # Add each chunk to the dataframe
-                for chunk_text in splitted_text:
-                    # Only add non-empty chunks
-                    if chunk_text.strip():
-                        temp_df = pd.DataFrame({
-                            "text": [chunk_text.strip()],
-                            "type": [document_type]
-                        })
-                        # Append to the global dataframe
-                        global df
-                        df = pd.concat([df, temp_df], ignore_index=True)
-                        print(f"Added chunk of {len(chunk_text)} characters for document type: {document_type}")
-            else:
-                print("No text was extracted from the document.")
+            # Train the ML model for score prediction
+                # File :-  train_bert_scoring.py 
+                # Input required(For now) :- EA requirement , RFP coverage and Score
+                # Exptected output will have :- EA requirement , RFP coverage , Score and predicted score
+
+
+             
+            # Take the Input file , check against file , updated generated html report with predictions for status and score and provide to our LLM
+            #  File :- train_llm_unsloth.py 
+
+
         except Exception as e:
             print(f"Error processing document: {e}")
 
-def process_documents():
-    """Helper function to process all documents and save the combined dataframe"""
-    global df
-    
-    # Process EA standard files
-    ea_dir = os.path.join("Dataset", "EA_standards")
-    if os.path.exists(ea_dir):
-        ea_standard_files = [os.path.join(ea_dir, file) for file in os.listdir(ea_dir) 
-                           if os.path.isfile(os.path.join(ea_dir, file))]
-        print(f"Processing {len(ea_standard_files)} EA standard files...")
-        
-        for file in ea_standard_files:
-            try:
-                agent = Agent(file_path=file)
-                agent.Start_Process(document_type="EA")
-            except Exception as e:
-                print(f"Error processing file {file}: {e}")
-    
-    # Process Proposal files
-    proposal_dir = os.path.join("Dataset", "Proposal")
-    if os.path.exists(proposal_dir):
-        proposal_files = [os.path.join(proposal_dir, file) for file in os.listdir(proposal_dir) 
-                        if os.path.isfile(os.path.join(proposal_dir, file))]
-        print(f"Processing {len(proposal_files)} proposal files...")
-        
-        for file in proposal_files:
-            try:
-                agent = Agent(file_path=file)
-                agent.Start_Process(document_type="proposal")
-            except Exception as e:
-                print(f"Error processing file {file}: {e}")
-    
-    # Process RFP files
-    rfp_dir = os.path.join("Dataset", "RFP")
-    if os.path.exists(rfp_dir):
-        rfp_files = [os.path.join(rfp_dir, file) for file in os.listdir(rfp_dir) 
-                   if os.path.isfile(os.path.join(rfp_dir, file))]
-        print(f"Processing {len(rfp_files)} RFP files...")
-        
-        for file in rfp_files:
-            try:
-                agent = Agent(file_path=file)
-                agent.Start_Process(document_type="proposal")
-            except Exception as e:
-                print(f"Error processing file {file}: {e}")
-    
-    return df
 
 if __name__ == "__main__":
-    # Process all documents
-    final_df = process_documents()
-    
-    # Save the combined dataframe
-    output_path = "Dataset/combined_data.csv"
-    final_df.to_csv(output_path, index=False)
-    
-    print(f"\nProcessing complete. Total chunks saved: {len(final_df)}")
-    print(f"Data saved to: {output_path}")
-    print(f"Breakdown by document type:")
-    print(final_df['type'].value_counts())
-    
-    # Optional: Print some statistics
-    total_characters = final_df['text'].str.len().sum()
-    avg_chunk_size = final_df['text'].str.len().mean()
-    print(f"Total characters across all chunks: {total_characters:,}")
-    print(f"Average chunk size: {avg_chunk_size:.0f} characters")
+
+    INPUT_FILES_DIR = "Data_Files"
+    EA_DIR = "EA_Standards"
+    RFP_DIR = "RFP"
+
+    ea_file_path = os.path.join( INPUT_FILES_DIR, EA_DIR ,"ea_requirement.docx")
+    rfp_file_path = os.path.join( INPUT_FILES_DIR , RFP_DIR ,"rfp_proposal.pdf")
+
+
+    agent = FineTuneAgent(
+        input_file_path=ea_file_path,
+        check_against_file_path=rfp_file_path
+    )
+
+    agent.Start_Process()
+
+

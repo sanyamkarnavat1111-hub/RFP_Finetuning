@@ -6,14 +6,11 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 from langchain_pymupdf4llm import PyMuPDF4LLMLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# from langchain_text_splitters import RecursiveCharacterTextSplitter
 import re
 import fitz
-from PIL import Image
 import io
 import time
-import gc
-from contextlib import contextmanager
 
 # Only import docx2pdf on Windows (it's Windows-only), fallback to libreoffice on Linux/macOS
 try:
@@ -24,17 +21,11 @@ except ImportError:
 
 
 class FileParser:
-    def __init__(self, file_path_or_url: str, max_chunk_size: int = 2000, chunk_overlap: int = 200):
-        self.file_input = file_path_or_url.strip()
-        self.max_chunk_size = max_chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=max_chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-        )
-        self.temp_file_to_cleanup = None  # Track file to delete if downloaded
 
+    def __init__(self):
+        
+        self.temp_file_to_cleanup = None  # Track file to delete if downloaded
+    
     def classify_path_or_url(self, s: str) -> str:
         parsed = urlparse(s)
         if parsed.scheme in ("http", "https", "ftp") and parsed.netloc:
@@ -88,10 +79,9 @@ class FileParser:
                 print(f"docx2pdf failed: {e}")
 
         # Fallback: use LibreOffice (works on Linux/macOS, and Windows if installed)
-        try:
-            soffice_path = r"C:\Program Files\LibreOffice\program\soffice.exe" 
+        try: 
             result = subprocess.run([
-                soffice_path, "--headless", "--convert-to", "pdf",
+                "libreoffice", "--headless", "--convert-to", "pdf",
                 "--outdir", os.path.dirname(docx_path), docx_path
             ], check=True, capture_output=True, timeout=60)
 
@@ -107,12 +97,15 @@ class FileParser:
         except subprocess.CalledProcessError as e:
             raise ValueError(f"LibreOffice conversion failed: {e}")
         except FileNotFoundError:
-            raise ValueError("LibreOffice not installed. Install it or use Windows with MS Word.")
+            raise ValueError(f"File not found :- {self.file_input}")
+        
 
         raise ValueError("Failed to convert DOCX to PDF using all available methods")
 
-    def parse_text(self) -> str:
-        file_path = None
+    def parse_text(self , file_path_or_url : str ) -> str:
+
+        self.file_input = file_path_or_url.strip()
+        
         try:
             input_type = self.classify_path_or_url(self.file_input)
 
@@ -160,14 +153,8 @@ class FileParser:
             # If less than 50 meaningful characters → likely scanned → use OCR
             if alphanumeric_count < 50:
                 print(f"Warning: Very few text was extracted  → Likely scanned PDF.... skipping the document ...")
-
                 return ""
-                # ocr_object = DeepSeekOCREngine()
-
-                # ocr_text = ocr_object.run_ocr_with_memory_management(pdf_path=final_pdf_path)
-                # print(f"OCR completed: {len(ocr_text):,} characters extracted via DeepSeek-OCR")
-                # return ocr_text
-
+                ###################### Instead of returning empty string we can fallback to OCR (currently not implemented since it takes lot of time ) given hardware limitation ##############
             return full_text
         
         except Exception as e:
@@ -208,187 +195,14 @@ class FileParser:
 
 
 
-class DeepSeekOCREngine:
-    def __init__(self):
-        self.memory_threshold = 0.85  # Stop if VRAM usage exceeds 85%
-        
-    def get_vram_usage(self):
-        """Get current VRAM usage percentage"""
-        try:
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.used,memory.total", 
-                 "--format=csv,nounits,noheader"],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                used, total = map(int, result.stdout.strip().split(','))
-                return used / total
-        except:
-            pass
-        return 1.0  # Assume full usage if we can't determine
-    
-    @contextmanager
-    def managed_ocr_session(self):
-        """Context manager that ensures complete cleanup after each page"""
-        try:
-            yield
-        finally:
-            self.force_complete_cleanup()
-    
-    def force_complete_cleanup(self):
-        """More aggressive cleanup than current approach"""
-        print("Performing complete cleanup...")
-        
-        # Multiple sequential cleanup steps
-        for i in range(3):  # Try multiple times
-            subprocess.run(["ollama", "stop", "deepseek-ocr"], 
-                         capture_output=True, timeout=15)
-            time.sleep(1)
-            
-            # Try GPU reset, but don't fail if it doesn't work
-            try:
-                subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0"], 
-                             capture_output=True, timeout=10)
-                time.sleep(1)
-            except subprocess.TimeoutExpired:
-                pass
-        
-        # Force Python garbage collection
-        gc.collect()
-        
-        # Additional system-level cleanup
-        try:
-            subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0"], 
-                         capture_output=True, timeout=5)
-        except:
-            pass
-    
-    def run_ocr_with_memory_management(self, pdf_path: str) -> str:
-        doc = fitz.open(pdf_path)
-        total_pages = doc.page_count
-        all_text = []
-        
-        failed_pages = []
-        
-        for page_num in range(total_pages):
-            # Check memory state before processing
-            vram_usage = self.get_vram_usage()
-            if vram_usage > self.memory_threshold:
-                print(f"VRAM usage too high ({vram_usage:.1%}), skipping page {page_num + 1}")
-                failed_pages.append(page_num + 1)
-                self.force_complete_cleanup()
-                continue
-            
-            print(f"\nProcessing page {page_num + 1}/{total_pages} (VRAM: {vram_usage:.1%})")
-            
-            temp_img_path = None
-            try:
-                # Render page
-                page = doc[page_num]
-                zoom = 2.5
-                mat = fitz.Matrix(zoom, zoom)
-                pix = page.get_pixmap(matrix=mat)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                
-                
-                temp_img_path = f"temp_ocr_page_{page_num}_{int(time.time()*1000000)}.png"
-                img.save(temp_img_path, "PNG")
 
-                try:
-                    # Use Popen with communicate to ensure complete output capture
-                    command = [
-                        "ollama", "run", "deepseek-ocr",
-                        f"{temp_img_path}\nExtract the text in the image"
-                    ]
-                    
-                    process = subprocess.Popen(
-                        command,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8"
-                    )
-                    
-                    stdout, stderr = process.communicate(timeout=30)
-                    
-                    if process.returncode != 0:
-                        extracted_text = f"(OCR failed: {stderr.strip()})"
-                    else:
-                        # Extract text from complete output
-                        lines = []
-                        in_response = False
-                        for line in stdout.splitlines():
-                            line = line.strip()
-                            if line and "Added image" in line:
-                                in_response = True  # Start capturing after image is added
-                                continue
-                            if in_response and line and not line.startswith(">>>"):
-                                lines.append(line)
-                        
-                        extracted_text = "\n".join(lines).strip()
-
-                        print(f"Extracted text :-" , extracted_text)
-                    
-                    all_text.append(f"\n--- Page {page_num + 1} ---\n{extracted_text}\n")
-
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    all_text.append(f"\n--- Page {page_num + 1} ---\n(OCR timed out)\n")
-            except Exception as e:
-                all_text.append(f"\n--- Page {page_num + 1} ---\n(OCR error: {e})\n")
-            finally:
-                # Always cleanup
-                if temp_img_path and os.path.exists(temp_img_path):
-                    try:
-                        os.remove(temp_img_path)
-                    except:
-                        pass
-                
-                # Clean up after every page, regardless of success
-                self.force_complete_cleanup()
-                
-                # Longer pause between pages to allow memory to fully settle
-                time.sleep(1)
-        
-        if failed_pages:
-            print(f"Warning: {len(failed_pages)} pages were skipped due to high memory usage: {failed_pages}")
-        
-        return "".join(all_text)
-
-# Additional strategy: Process in batches with complete restarts
-def run_ocr_with_complete_restarts(pdf_path: str, batch_size: int = 3):
-    """Process the document in small batches with complete system restarts"""
-    doc = fitz.open(pdf_path)
-    total_pages = doc.page_count
-    all_text = []
-    
-    for batch_start in range(0, total_pages, batch_size):
-        batch_end = min(batch_start + batch_size, total_pages)
-        print(f"Processing batch {batch_start//batch_size + 1}: pages {batch_start + 1} to {batch_end}")
-        
-        batch_text = []
-        for page_num in range(batch_start, batch_end):
-            # Process single page as before, but with the improved cleanup
-            # ... (use the improved single-page processing from above)
-            pass
-        
-        all_text.extend(batch_text)
-        
-        # After each batch, perform complete cleanup and optionally restart ollama
-        subprocess.run(["ollama", "stop", "deepseek-ocr"], capture_output=True)
-        time.sleep(2)  # Allow complete memory stabilization
-        
-        # Optional: completely restart the ollama service between batches
-        subprocess.run(["net", "stop", "ollama"], capture_output=True)
-        time.sleep(2)
-        subprocess.run(["net", "start", "ollama"], capture_output=True)
 
 if __name__ == "__main__":
 
     
-    obj = FileParser(file_path_or_url="https://compliancebotai.blob.core.windows.net/compliancebotdev/rfp/document/67b5be9c749273GORz1739964060.pdf")
+    obj = FileParser()
 
-    res = obj.parse_text()
+    res = obj.parse_text(file_path_or_url="document.pdf")
     print("-"*100)
     print(len(res))
     print(res)

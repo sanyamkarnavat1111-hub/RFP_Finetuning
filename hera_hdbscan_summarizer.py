@@ -4,13 +4,12 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.document_loaders import PyMuPDFLoader
 from typing import List, Dict
 import os
 import numpy as np
 import hdbscan
 from tqdm import tqdm
-
+from download_and_parse import FileParser
 
 # === Structured Output Models ===
 class EventTitle(BaseModel):
@@ -21,9 +20,9 @@ class EventSummary(BaseModel):
 
 
 class HERASummarizer:
-    def __init__(self, ollama_model: str = "gemma2:9b"):
+    def __init__(self, ollama_model: str = "gemma2:9b" , embedding_model = "nomic-embed-text"):
         self.llm = ChatOllama(model=ollama_model, temperature=0.0)
-        self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        self.embeddings = OllamaEmbeddings(model=embedding_model)
 
         self.llm_title = self.llm.with_structured_output(EventTitle)
         self.llm_summary = self.llm.with_structured_output(EventSummary)
@@ -68,7 +67,7 @@ class HERASummarizer:
             min_samples=2,
             metric='euclidean',
             cluster_selection_method='eom',
-            prediction_data=True
+            prediction_data=True,
         )
         labels = clusterer.fit_predict(vectors)
 
@@ -97,8 +96,6 @@ class HERASummarizer:
 
     def summarize_event(self, segments: List[Document]) -> str:
         text = "\n\n".join([s.page_content for s in segments])
-        if len(text) > 15000:
-            text = text[:15000] + "\n\n[Content truncated]"
 
         chain = self.summary_prompt | self.llm_summary
         try:
@@ -127,28 +124,10 @@ class HERASummarizer:
         return output
 
 
-# === PDF Loader ===
-def load_and_summarize_pdf(pdf_path: str, ollama_model: str = "gemma2:9b") -> str:
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-    print(f"Loading: {pdf_path}")
-    loader = PyMuPDFLoader(pdf_path)
-    docs = loader.load()
-    text = "\n\n".join([d.page_content for d in docs])
-    print(f"   → {len(docs)} pages extracted")
-
-    summarizer = HERASummarizer(ollama_model=ollama_model)
-    result = summarizer.summarize_document(text)
-
-    # TEXT FILE ONLY
-    with open("hera_summary.txt", "w", encoding="utf-8") as f:
-        f.write(result)
-
-    print("\nDone! Summary saved to hera_summary.txt")
-    return result
-
-
 if __name__ == "__main__":
-    pdf_path = "document.pdf"
-    load_and_summarize_pdf(pdf_path, ollama_model="gemma2:9b")
+
+    parser = FileParser(file_path_or_url="document.pdf")
+    text = parser.parse_text()
+    
+    summarizer = HERASummarizer(ollama_model="gemma2:9b")
+    result = summarizer.summarize_document(text)

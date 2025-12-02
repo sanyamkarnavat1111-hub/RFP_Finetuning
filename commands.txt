@@ -1,0 +1,27 @@
+
+
+# Run Ollama
+    - ollama serve (In wsl this wakes up start and might give TCP error)
+
+# Stop Ollama :-
+    - sudo systemctl stop ollama
+
+# Restart Ollama service
+    - sudo systemctl restart ollama
+
+
+
+# Why Ollama WHY YOUR MODELS “VANISHED” AFTER terminal RESTART ?
+
+        WSL starts the Ollama service using systemd:
+        systemctl start ollama
+
+
+        This service runs as a system user (ollama or nobody), not your user.
+        But your .ollama folder is owned by root, so the service cannot read it.
+
+
+    solution :- In WSL, enable systemd-based Ollama
+    sudo systemctl enable ollama
+    sudo systemctl start ollama
+
