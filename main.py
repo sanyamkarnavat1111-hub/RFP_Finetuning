@@ -27,7 +27,7 @@ class FineTuneAgent:
             self.hera_summarizer = HERASummarizer()
 
             #################################################################################################################
-                        ### No need for language detection and translation , Hera summarize is already doing that ###
+                        ### No need for language detection and translation , HERA summarizer is already doing that ###
             
             # self.detector = LanguageDetection()
             # language = self.detector.detect(text=text)
@@ -35,7 +35,7 @@ class FineTuneAgent:
             #################################################################################################################
 
         except Exception as e :
-            print(f"Error Initializing th agent :- \n " , e)
+            print(f"Error Initializing the agent :- \n " , e)
             sys.exit(0)
 
         
