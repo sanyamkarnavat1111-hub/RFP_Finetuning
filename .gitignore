@@ -15,5 +15,5 @@ unsloth_compiled_cache
 *.png
 *.pyc
 *.docx
-__pycache__\*
-D:\RFP_Finetuning\Backup_files\Finetuning_Codes\saved_model_regression\vocab.txt
+__pycache__/*
+saved_model_regression/vocab.txt
